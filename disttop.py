@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 
 import argparse
-import operator
 import re
 import string
 import subprocess
@@ -74,32 +73,23 @@ def getprocs(host):
 #               Printing
 ################################################################################
 
-def print_procs(procs):
-	print("\033[2J")
-	sys.stdout.flush()
-	# - Save cursor position:
-	print("\033[s")
-	sys.stdout.flush()
+def print_procs(stdscr, procs):
 	fields  = ['host', 'pid', 'user', 'pr', 'nice', 'virt', 'res', 'shr', 's', 'cpu', 'mem', 'time', 'cmd']
 	formats = ['{val:<{width}}', '{val:>{width}}', '{val:<{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:<{width}}']
 	widths = [0] * len(fields);
 	i = 0
-	for f in fields:
+	for i, f in enumerate(fields):
+		widths[i] = len( f )
 		for p in procs:
 			widths[i] = max( widths[i], len( getattr(p,f) ) )
-		i += 1
 
-	i = 0
-	for p in procs:
-		i = 0
-		for f in fields:
-			print( formats[i].format(val = getattr(p,f), width = widths[i]), end = "  " )
-			i += 1
-		print("")
-
-	# - Restore cursor position:
-	print("\033[u")
-	sys.stdout.flush()
+	y, x = stdscr.getmaxyx()
+	text = " | ".join( formats[fi].format(val = f, width = widths[fi]) for fi, f in enumerate(fields) )
+	stdscr.addnstr(0, 0, text, x - 1)
+	stdscr.addnstr(1, 0, "-" * x, x - 1)
+	for pi, p in enumerate(procs[:y - 2]):
+		text = "   ".join( formats[fi].format(val = getattr(p,f), width = widths[fi]) for fi, f in enumerate(fields) )
+		stdscr.addnstr(pi + 2, 0, text, x - 1)
 
 ################################################################################
 #               Argument Parsing
@@ -114,16 +104,25 @@ except:
 	parser.print_help(sys.stderr)
 	sys.exit(1)
 
-procs = []
-for host in options.hosts:
-	try:
-		print("Calling top for {}".format(host))
-		procs.extend( getprocs(host) )
-		# print(out)
-	except SSH_Error as e:
-		print("Host {} encountered an error".format(e.host))
-		print(e.error)
+from curses import wrapper
 
-procs.sort(key=operator.attrgetter('cpu'), reverse=True)
+def main(stdscr):
+	stdscr.nodelay(True)
+	i = 0
+	while True:
+		stdscr.clear()
+		stdscr.move(0, 0)
 
-print_procs(procs)
+		procs = []
+		for host in options.hosts:
+			procs.extend( getprocs(host) )
+			# print(out)
+		procs.sort(key=lambda p: float(p.cpu), reverse=True)
+
+		print_procs(stdscr, procs)
+
+		stdscr.refresh()
+		if stdscr.getch() >= 0:
+			return
+
+wrapper(main)
