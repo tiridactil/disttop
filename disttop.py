@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import argparse
+import multiprocessing
 import re
 import string
 import subprocess
@@ -73,6 +74,12 @@ def getprocs(host):
 #               Printing
 ################################################################################
 
+def nstr(stdscr, y, x, text, n):
+	if stdscr:
+		stdscr.addnstr(y, x, text, n)
+	else:
+		print(text)
+
 def print_procs(stdscr, procs):
 	fields  = ['host', 'pid', 'user', 'pr', 'nice', 'virt', 'res', 'shr', 's', 'cpu', 'mem', 'time', 'cmd']
 	formats = ['{val:<{width}}', '{val:>{width}}', '{val:<{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:<{width}}']
@@ -83,13 +90,16 @@ def print_procs(stdscr, procs):
 		for p in procs:
 			widths[i] = max( widths[i], len( getattr(p,f) ) )
 
-	y, x = stdscr.getmaxyx()
+	y = 1000;
+	x = 1000;
+	if stdscr:
+		y, x = stdscr.getmaxyx()
 	text = " | ".join( formats[fi].format(val = f, width = widths[fi]) for fi, f in enumerate(fields) )
-	stdscr.addnstr(0, 0, text, x - 1)
-	stdscr.addnstr(1, 0, "-" * x, x - 1)
+	nstr(stdscr, 0, 0, text, x - 1)
+	nstr(stdscr, 1, 0, "-" * x, x - 1)
 	for pi, p in enumerate(procs[:y - 2]):
 		text = "   ".join( formats[fi].format(val = getattr(p,f), width = widths[fi]) for fi, f in enumerate(fields) )
-		stdscr.addnstr(pi + 2, 0, text, x - 1)
+		nstr(stdscr, pi + 2, 0, text, x - 1)
 
 ################################################################################
 #               Argument Parsing
@@ -104,8 +114,9 @@ except:
 	parser.print_help(sys.stderr)
 	sys.exit(1)
 
-from curses import wrapper
+pool = multiprocessing.Pool(len(options.hosts))
 
+from curses import wrapper
 def main(stdscr):
 	stdscr.nodelay(True)
 	i = 0
@@ -113,10 +124,8 @@ def main(stdscr):
 		stdscr.clear()
 		stdscr.move(0, 0)
 
-		procs = []
-		for host in options.hosts:
-			procs.extend( getprocs(host) )
-			# print(out)
+		results = pool.map(getprocs, options.hosts, chunksize = 1)
+		procs = [p for plist in results for p in plist]
 		procs.sort(key=lambda p: float(p.cpu), reverse=True)
 
 		print_procs(stdscr, procs)
