@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import argparse
+import operator
 import re
 import string
 import subprocess
@@ -70,6 +71,37 @@ def getprocs(host):
 
 
 ################################################################################
+#               Printing
+################################################################################
+
+def print_procs(procs):
+	print("\033[2J")
+	sys.stdout.flush()
+	# - Save cursor position:
+	print("\033[s")
+	sys.stdout.flush()
+	fields  = ['host', 'pid', 'user', 'pr', 'nice', 'virt', 'res', 'shr', 's', 'cpu', 'mem', 'time', 'cmd']
+	formats = ['{val:<{width}}', '{val:>{width}}', '{val:<{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:<{width}}']
+	widths = [0] * len(fields);
+	i = 0
+	for f in fields:
+		for p in procs:
+			widths[i] = max( widths[i], len( getattr(p,f) ) )
+		i += 1
+
+	i = 0
+	for p in procs:
+		i = 0
+		for f in fields:
+			print( formats[i].format(val = getattr(p,f), width = widths[i]), end = "  " )
+			i += 1
+		print("")
+
+	# - Restore cursor position:
+	print("\033[u")
+	sys.stdout.flush()
+
+################################################################################
 #               Argument Parsing
 ################################################################################
 parser = argparse.ArgumentParser(description='Distributed wrapper for top')
@@ -92,5 +124,6 @@ for host in options.hosts:
 		print("Host {} encountered an error".format(e.host))
 		print(e.error)
 
-for p in procs:
-	print("{}\t{}".format(p.host, p.cmd))
+procs.sort(key=operator.attrgetter('cpu'), reverse=True)
+
+print_procs(procs)
