@@ -2,9 +2,11 @@
 
 import argparse
 import subprocess
+import sys
 
-
-target = "localhost"
+################################################################################
+#               SSH Handling
+################################################################################
 
 class SSH_Error(Exception):
     """Exception raised for ssh errors .
@@ -28,9 +30,25 @@ def calltop(host):
 
 		return out.decode("utf-8") if out else ""
 
+
+################################################################################
+#               Argument Parsing
+################################################################################
+parser = argparse.ArgumentParser(description='Distributed wrapper for top')
+parser.add_argument('hosts', metavar='hosts', type=str, nargs='*', help='the list of hosts on which to run top')
+
 try:
-	out = calltop(target)
-	print(out)
-except SSH_Error as e:
-	print("Host {} encountered an error".format(e.host))
-	print(e.error)
+	options =  parser.parse_args()
+except:
+	print('ERROR: invalid arguments', file=sys.stderr)
+	parser.print_help(sys.stderr)
+	sys.exit(1)
+
+for host in options.hosts:
+	try:
+		print("Calling top for {}".format(host))
+		out = calltop(host)
+		# print(out)
+	except SSH_Error as e:
+		print("Host {} encountered an error".format(e.host))
+		print(e.error)
