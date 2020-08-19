@@ -7,7 +7,6 @@ On every refresh it runs 'ssh -x top -bn 1' for every host.
 Future Work:
 - This could be improved by making the ssh connections persistent.
 - Support for -i -H etc.
-- Error handling.
 """
 
 import argparse
@@ -16,6 +15,8 @@ import re
 import string
 import subprocess
 import sys
+
+from itertools import chain
 
 ################################################################################
 #               SSH Handling
@@ -88,7 +89,10 @@ def getprocs(host):
 	Forwards any exception from calltop
 	"""
 	# calltop first, obviously
-	out = calltop(host)
+	try:
+		out = calltop(host)
+	except:
+		return {'broken': host}
 
 	# each line represents a process
 	procs = []
@@ -107,7 +111,7 @@ def getprocs(host):
 		procs.append( Process(host, sl) )
 
 	# return the list of Process
-	return procs
+	return {'procs': procs}
 
 
 ################################################################################
@@ -122,7 +126,7 @@ def nstr(stdscr, y, x, text, n):
 	else:
 		print(text)
 
-def print_procs(stdscr, procs):
+def print_procs(stdscr, procs, broken_procs):
 	"""print the list of process to the screen, with some nice formatting"""
 	# pre-create the list of fields and which side to pad when printing
 	fields  = ['host', 'pid', 'user', 'pr', 'nice', 'virt', 'res', 'shr', 's', 'cpu', 'mem', 'time', 'cmd']
@@ -149,9 +153,12 @@ def print_procs(stdscr, procs):
 	nstr(stdscr, 1, 0, "-" * x, x - 1)
 
 	# actually print the processes
-	for pi, p in enumerate(procs[:y - 2]):
+	for pi, p in enumerate(procs[:y - 3]):
 		text = "   ".join( formats[fi].format(val = getattr(p,f), width = widths[fi]) for fi, f in enumerate(fields) )
 		nstr(stdscr, pi + 2, 0, text, x - 1)
+
+	# print broken_procs
+	nstr(stdscr, y - 1, 0, "Broken Hosts: {}".format(", ".join(broken_procs)), x)
 
 ################################################################################
 #               Argument Parsing
@@ -187,8 +194,15 @@ def main(stdscr):
 			# if the users pressed ANY key, just assuming it's time to stop
 			return
 
-		# pool.imap* return a list, flatten it
-		procs = [p for plist in results for p in plist]
+		# pool.imap* returns an iterator, not a list. Wait for all results
+		results = [r for r in results]
+
+		# filter the good results from the bad
+		good    = [r['procs' ] for r in results if 'procs'  in r]
+		brokens = [r['broken'] for r in results if 'broken' in r]
+
+		# pool.imap* return a list so this is a 2d list, flatten it
+		procs   = [j for sub in good for j in sub]
 
 		# sort the process by cpu time so the active ones are on top
 		# since this is a fancy future list from pool.imap*,
@@ -200,7 +214,7 @@ def main(stdscr):
 		stdscr.clear()
 
 		# do the fancy printing
-		print_procs(stdscr, procs)
+		print_procs(stdscr, procs, brokens)
 
 		# push it to the screen
 		stdscr.refresh()
