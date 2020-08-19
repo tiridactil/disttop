@@ -4,6 +4,8 @@
 This script runs top through ssh on all specified machines.
 On every refresh it runs 'ssh -x top -bn 1' for every host.
 
+Hosts that cannot be contacted are listed at the bottom
+
 Future Work:
 - This could be improved by making the ssh connections persistent.
 - Support for -i -H etc.
@@ -70,18 +72,8 @@ class Process:
 		if(len(fields) < 12) :
 			print('ERROR: invalid top line for host {} : "{}"({})'.format(host, data, fields), file=sys.stderr)
 			sys.exit(1)
-		self.pid  = fields[0]
-		self.user = fields[1]
-		self.pr   = fields[2]
-		self.nice = fields[3]
-		self.virt = fields[4]
-		self.res  = fields[5]
-		self.shr  = fields[6]
-		self.s    = fields[7]
-		self.cpu  = fields[8]
-		self.mem  = fields[9]
-		self.time = fields[10]
-		self.cmd  = " ".join(fields[11:])
+		self.pid, self.user, self.pr, self.nice, self.virt, self.res, self.shr, self.s, self.cpu, self.mem, self.time, *self.cmd = fields
+		self.cmd  = " ".join(self.cmd)
 
 
 def getprocs(host):
@@ -129,32 +121,25 @@ def nstr(stdscr, y, x, text, n):
 def print_procs(stdscr, procs, broken_procs):
 	"""print the list of process to the screen, with some nice formatting"""
 	# pre-create the list of fields and which side to pad when printing
-	fields  = ['host', 'pid', 'user', 'pr', 'nice', 'virt', 'res', 'shr', 's', 'cpu', 'mem', 'time', 'cmd']
-	formats = ['{val:<{width}}', '{val:>{width}}', '{val:<{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:>{width}}', '{val:<{width}}']
+	fields  = [('host','<'), ('pid','>'), ('user','<'), ('pr','>'), ('nice','>'), ('virt','>'), ('res','>'), ('shr','>'), ('s','>'), ('cpu','>'), ('mem','>'), ('time','>'), ('cmd','<')]
 
 	# to look nice, I want everything to align
 	# I do this by calculing the max width for each column
 	# the max might be off screen and I don't care
-	widths = [0] * len(fields);
-	for i, f in enumerate(fields):
-		widths[i] = len( f ) # don't forget the header in size calculation
-		for p in procs:
-			widths[i] = max( widths[i], len( getattr(p,f) ) )
+	# don't forget the header in size calculation
+	fields = [(f, s, max( [ len(f) ] + [len( getattr(p,f) ) for p in procs] )) for f,s in fields]
 
 	# get the max coordinates, if there is no screen instance just fake it
-	y = 1000;
-	x = 1000;
-	if stdscr:
-		y, x = stdscr.getmaxyx()
+	y, x = stdscr.getmaxyx() if stdscr else (1000, 1000)
 
 	# print the header
-	text = " | ".join( formats[fi].format(val = f, width = widths[fi]) for fi, f in enumerate(fields) )
+	text = " | ".join( "{val:{s}{w}}".format(val = f, s = s, w = w) for f, s, w in fields )
 	nstr(stdscr, 0, 0, text, x - 1)
 	nstr(stdscr, 1, 0, "-" * x, x - 1)
 
 	# actually print the processes
 	for pi, p in enumerate(procs[:y - 3]):
-		text = "   ".join( formats[fi].format(val = getattr(p,f), width = widths[fi]) for fi, f in enumerate(fields) )
+		text = "   ".join( "{val:{s}{w}}".format(val = getattr(p,f), s = s, w = w) for f, s, w in fields )
 		nstr(stdscr, pi + 2, 0, text, x - 1)
 
 	# print broken_procs
