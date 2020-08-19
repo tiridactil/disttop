@@ -223,7 +223,7 @@ def main(stdscr):
 		stdscr.refresh()
 
 # create the directory for the socket multiplexing if needed
-Path("~/.disttop").mkdir(parents=True, exist_ok=True)
+Path.home().joinpath(".disttop").mkdir(parents=True, exist_ok=True)
 
 # prep the ssh multiplexing
 pool.map(prepssh, options.hosts, chunksize = 1)
