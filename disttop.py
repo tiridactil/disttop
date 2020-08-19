@@ -3,11 +3,11 @@
 
 This script runs top through ssh on all specified machines.
 On every refresh it runs 'ssh -x top -bn 1' for every host.
+Uses ssh connexion multiplexing to avoid too many connections.
 
 Hosts that cannot be contacted are listed at the bottom
 
 Future Work:
-- This could be improved by making the ssh connections persistent.
 - Support for -i -H etc.
 """
 
@@ -19,6 +19,7 @@ import subprocess
 import sys
 
 from itertools import chain
+from pathlib import Path
 
 ################################################################################
 #               SSH Handling
@@ -33,8 +34,24 @@ class SSH_Error(Exception):
 	"""
 
 	def __init__(self, error, host):
-		self.error = error
+		self.error = error.strip()
 		self.host = host
+
+def prepssh(host):
+	"""Setup connection multiplexing to 'host'"""
+	# build base command
+	cmd = ["ssh", host, "-NfM", "-S", "~/.disttop/ssh_%h_%p_%r"]
+
+	# Run command, pipe both outputs
+	subprocess.Popen(cmd).communicate()
+
+def cleanssh(host):
+	"""Teardown connection multiplexing to 'host'"""
+	# build base command
+	cmd = ["ssh", host, "-qS", "~/.disttop/ssh_%h_%p_%r", "-O", "exit"]
+
+	# Run command, pipe both outputs
+	subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).communicate()
 
 def calltop(host):
 	"""ssh onto 'host' and retrieve currently running processes.
@@ -42,7 +59,7 @@ def calltop(host):
 	Raises SSH_Error on any error of the command.
 	"""
 	# build base command
-	cmd = ["ssh", host, "-x", "top", "-bn", "1"]
+	cmd = ["ssh", host, "-xT", "-S", "~/.disttop/ssh_%h_%p_%r", "-oBatchMode=True", "top", "-bsn", "1"]
 
 	# Run command, pipe both outputs
 	with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as proc:
@@ -83,8 +100,8 @@ def getprocs(host):
 	# calltop first, obviously
 	try:
 		out = calltop(host)
-	except:
-		return {'broken': host}
+	except SSH_Error as s:
+		return {'broken': "{}: '{}'".format(host, s.error) }
 
 	# each line represents a process
 	procs = []
@@ -131,16 +148,17 @@ def print_procs(stdscr, procs, broken_procs):
 
 	# get the max coordinates, if there is no screen instance just fake it
 	y, x = stdscr.getmaxyx() if stdscr else (1000, 1000)
+	x -= 1 # I use x as the parameter to addnstr and maxX is to large
 
 	# print the header
 	text = " | ".join( "{val:{s}{w}}".format(val = f, s = s, w = w) for f, s, w in fields )
-	nstr(stdscr, 0, 0, text, x - 1)
-	nstr(stdscr, 1, 0, "-" * x, x - 1)
+	nstr(stdscr, 0, 0, text, x)
+	nstr(stdscr, 1, 0, "-" * x, x)
 
 	# actually print the processes
 	for pi, p in enumerate(procs[:y - 3]):
 		text = "   ".join( "{val:{s}{w}}".format(val = getattr(p,f), s = s, w = w) for f, s, w in fields )
-		nstr(stdscr, pi + 2, 0, text, x - 1)
+		nstr(stdscr, pi + 2, 0, text, x)
 
 	# print broken_procs
 	nstr(stdscr, y - 1, 0, "Broken Hosts: {}".format(", ".join(broken_procs)), x)
@@ -204,4 +222,14 @@ def main(stdscr):
 		# push it to the screen
 		stdscr.refresh()
 
+# create the directory for the socket multiplexing if needed
+Path("~/.disttop").mkdir(parents=True, exist_ok=True)
+
+# prep the ssh multiplexing
+pool.map(prepssh, options.hosts, chunksize = 1)
+
+# run the main loop
 wrapper(main)
+
+# teardown the ssh multiplexing
+pool.map(cleanssh, options.hosts, chunksize = 1)
